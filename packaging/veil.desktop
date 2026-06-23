@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Veil
+GenericName=Per-app tunnel + anti-detect identity
+Comment=Per-app VPN/Tor isolation with persona-pinned fingerprint impersonation. Local-first, no telemetry.
+Exec=env VEIL_USERNS_ENGINE=1 /usr/local/bin/veil-gui-launcher
+Icon=veil
+Terminal=false
+Categories=Network;Security;Utility;
+Keywords=vpn;wireguard;openvpn;tor;proxy;privacy;tunnel;persona;anti-detect;fingerprint;opsec;
+StartupWMClass=veil-gui
+StartupNotify=true

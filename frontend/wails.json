@@ -1,0 +1,12 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "veil",
+  "outputfilename": "veil-gui",
+  "frontend:install": "echo no-install",
+  "frontend:build": "echo no-build",
+  "frontend:dev:serverUrl": "auto",
+  "wailsjsdir": "./src",
+  "author": {
+    "name": "Marc Stampfli"
+  }
+}

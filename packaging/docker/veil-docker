@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# veil-docker — run veil in its hardened container without the long command.
+#
+#   veil-docker build                     # build the image once
+#   veil-docker selftest freetor          # any veil subcommand
+#   veil-docker run <profile> -- <cmd>    # run an app through a profile
+#   veil-docker --x11 run <p> -- firefox  # headful: share the host X11 display
+#
+# Capless by default (CapEff=0): drops all caps except the three the entrypoint
+# uses to drop to the unprivileged user, a tight custom seccomp profile, and the
+# tun device. Your profiles in ~/.config/veil/profiles are mounted in.
+set -euo pipefail
+
+IMAGE="${VEIL_DOCKER_IMAGE:-veil}"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+SECCOMP="${VEIL_SECCOMP:-$HERE/seccomp.json}"
+PROFILES="${VEIL_PROFILES:-$HOME/.config/veil/profiles}"
+
+if [ "${1:-}" = "build" ]; then
+  exec docker build -f "$HERE/Dockerfile" -t "$IMAGE" "$HERE/../.."
+fi
+
+x11=()
+if [ "${1:-}" = "--x11" ] || [ "${VEIL_DOCKER_X11:-0}" = "1" ]; then
+  [ "${1:-}" = "--x11" ] && shift
+  # Display via the X11 unix socket (not network-namespaced, so it crosses
+  # veil's netns); network still goes through veil. Run `xhost +local:` first.
+  # --shm-size: browsers (Firefox/Chromium) need far more than Docker's default
+  # 64M of /dev/shm or they crash on launch.
+  x11=(-e "DISPLAY=${DISPLAY:-:0}" -v /tmp/.X11-unix:/tmp/.X11-unix --shm-size=512m)
+fi
+
+tty=()
+[ -t 0 ] && tty=(-it)
+
+seccomp_opt=(--security-opt "seccomp=$SECCOMP")
+[ -f "$SECCOMP" ] || { echo "veil-docker: seccomp profile not found at $SECCOMP; falling back to unconfined" >&2; seccomp_opt=(--security-opt seccomp=unconfined); }
+
+mkdir -p "$PROFILES"
+exec docker run --rm "${tty[@]}" \
+  --cap-drop ALL --cap-add SETUID --cap-add SETGID --cap-add SETPCAP \
+  "${seccomp_opt[@]}" \
+  --security-opt apparmor=unconfined \
+  --security-opt systempaths=unconfined \
+  --device /dev/net/tun \
+  -v "$PROFILES:/home/veil/.config/veil/profiles" \
+  "${x11[@]}" \
+  "$IMAGE" "$@"

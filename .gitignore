@@ -1,0 +1,42 @@
+# Build artifacts (anchored to repo root so cmd/veil/, cmd/veil-bridge/
+# etc., which are source, aren't accidentally ignored).
+/bin/
+/_r1/
+/build/
+/veil
+/veil.exe
+/veil-gui
+/veil-gui.exe
+/veil-bridge
+/veil-bridge.exe
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / runtime
+*.log
+/tmp-*
+
+# Veil-browser fork work-in-progress (separate project tree)
+veil-browser/
+
+# license issuer (seller-side secrets / build output)
+issuer-key.pem
+issuer*.key
+release-key.pem
+*.issuerkey
+revoked-ids.txt
+/license-issuer
+/dist/

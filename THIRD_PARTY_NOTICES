@@ -1,0 +1,160 @@
+Veil — Third-Party Notices
+==========================
+
+This file lists third-party software bundled with or linked into Veil
+binaries, with their license identifiers and source URLs. Where a
+license requires distribution of its full text alongside binaries,
+the LICENSE files in the dependency repos are authoritative.
+
+Generated from: go-licenses report ./cmd/veil
+
+Direct dependencies
+-------------------
+
+filippo.io/age                              BSD-3-Clause
+  https://github.com/FiloSottile/age
+
+github.com/andybalholm/brotli               MIT
+  https://github.com/andybalholm/brotli
+
+github.com/florianl/go-nfqueue/v2           MIT
+  https://github.com/florianl/go-nfqueue
+
+github.com/golang-jwt/jwt/v5                MIT
+  https://github.com/golang-jwt/jwt
+
+github.com/josharian/native                 MIT
+  https://github.com/josharian/native
+
+github.com/klauspost/compress               Apache-2.0
+  https://github.com/klauspost/compress
+  (with sub-packages under MIT and BSD-3-Clause)
+
+github.com/mdlayher/netlink                 MIT
+  https://github.com/mdlayher/netlink
+
+github.com/mdlayher/socket                  MIT
+  https://github.com/mdlayher/socket
+
+github.com/refraction-networking/utls       BSD-3-Clause
+  https://github.com/refraction-networking/utls
+
+github.com/spf13/cobra                      Apache-2.0
+  https://github.com/spf13/cobra
+
+github.com/spf13/pflag                      BSD-3-Clause
+  https://github.com/spf13/pflag
+
+github.com/vishvananda/netlink              Apache-2.0
+  https://github.com/vishvananda/netlink
+
+github.com/vishvananda/netns                Apache-2.0
+  https://github.com/vishvananda/netns
+
+golang.org/x/crypto                         BSD-3-Clause
+  https://cs.opensource.google/go/x/crypto
+
+golang.org/x/net                            BSD-3-Clause
+  https://cs.opensource.google/go/x/net
+
+golang.org/x/sync/errgroup                  BSD-3-Clause
+  https://cs.opensource.google/go/x/sync
+
+golang.org/x/sys                            BSD-3-Clause
+  https://cs.opensource.google/go/x/sys
+
+golang.org/x/text                           BSD-3-Clause
+  https://cs.opensource.google/go/x/text
+
+golang.zx2c4.com/wireguard                  MIT
+  https://git.zx2c4.com/wireguard-go
+
+gopkg.in/yaml.v3                            MIT
+  https://github.com/go-yaml/yaml
+
+
+GUI dependencies (cmd/veil-gui only)
+------------------------------------
+
+github.com/wailsapp/wails/v2                MIT
+  https://github.com/wailsapp/wails
+
+github.com/getlantern/systray               Apache-2.0  (optional, tray build only)
+  https://github.com/getlantern/systray
+
+
+GUI assets (bundled in cmd/veil-gui/dist/assets/)
+-------------------------------------------------
+
+circle-flags (HatScripts)                    MIT
+  https://github.com/HatScripts/circle-flags
+  Round country flag SVGs used in profile/dashboard views.
+  Bundled set: cmd/veil-gui/dist/assets/flags/
+
+IBM Plex Sans + IBM Plex Mono                 OFL-1.1
+  https://github.com/IBM/plex
+  Display + monospace typefaces. Bundled woff2 in
+  cmd/veil-gui/dist/assets/fonts/. © IBM Corp.
+
+world-atlas (TopoJSON, Natural Earth derived) ISC
+  https://github.com/topojson/world-atlas
+  Country boundary data for the dashboard map.
+  Bundled: cmd/veil-gui/dist/countries-{50m,110m}.json
+
+Inline icon glyphs in cmd/veil-gui/dist/icons.js are derived from
+Lucide (https://lucide.dev), ISC License — copied as inline SVG
+strings, no runtime dependency.
+
+
+veil-browser (separate Chromium fork project)
+---------------------------------------------
+
+veil-browser is a Brave-derived Chromium fork. Its license stack:
+
+  - Veil patches modifying MPL-2.0 files: MPL-2.0
+  - Veil-original helper sources (veil_persona.cc, etc.): MPL-2.0
+  - Brave Browser source: MPL-2.0
+  - Chromium source: BSD-3-Clause + various per-file licenses
+  - V8: BSD-3-Clause
+  - Skia: BSD-3-Clause
+  - ICU: ICU License (BSD-style)
+  - libwebp, libpng, libjpeg, zlib, brotli, ...: each under their own
+    permissive license (MIT/BSD/zlib).
+
+The full third-party notice for veil-browser is generated at build
+time from Brave's own about:credits page and shipped inside the
+binary at chrome://credits.
+
+
+Bundled / invoked external programs (not Go modules)
+----------------------------------------------------
+
+pasta / passt — GPL-2.0-or-later — https://passt.top/
+  Userspace network uplink for the zero-capability engine. veil runs pasta as a
+  SEPARATE PROCESS (it does not link pasta), so pasta's GPL does not extend to
+  veil. install.sh builds pasta from upstream source; the Docker image bundles a
+  built pasta binary, so anyone redistributing that image must make its
+  corresponding source available (upstream passt at the commit pinned in
+  packaging/docker/Dockerfile, PASST_REF). No pasta source is modified or
+  vendored into this repository.
+
+Invoked at runtime as separate processes — provided by the operating system,
+NOT distributed by veil (invoking them does not make veil a derivative work):
+  tor (BSD-3-Clause), iptables (GPL-2.0), iproute2 (GPL-2.0),
+  nss-tools / certutil (MPL-2.0 / GPL / LGPL), util-linux (GPL-2.0 / misc),
+  procps (GPL-2.0 / LGPL).
+
+
+Trademarks
+----------
+
+Veil is not affiliated with, endorsed by, or related to any of the
+following: Mozilla Foundation, Brave Software Inc., The Tor Project,
+Mullvad VPN AB, Google LLC, Apple Inc., Microsoft Corp.
+
+"Tor" and the onion logo are trademarks of The Tor Project.
+"Brave" and the Brave lion are trademarks of Brave Software, Inc.
+"Firefox" is a trademark of the Mozilla Foundation.
+"Chrome" / "Chromium" are trademarks of Google LLC.
+"Mullvad" is a trademark of Mullvad VPN AB.
+"WireGuard" is a trademark of Jason A. Donenfeld.

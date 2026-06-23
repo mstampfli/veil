@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Veil Persona",
+  "version": "1.0.0",
+  "description": "Veil-injected persona overrides for navigator/screen/WebGL/canvas/audio/fonts. Auto-installed by Veil — do not modify.",
+
+  "permissions": [
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": ["<all_urls>"],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["persona-data.js", "persona-overrides.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    }
+  ],
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "veil-persona@veil.local",
+      "strict_min_version": "109.0"
+    }
+  }
+}

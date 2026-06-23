@@ -1,0 +1,87 @@
+#!/bin/bash
+# Veil GUI launcher — runs the GUI either:
+#   1. unprivileged with the user-namespaced engine path (no password
+#      prompt) when veil-bridge has CAP_NET_ADMIN AND the kernel
+#      allows unprivileged user namespaces. This is the new default.
+#   2. via pkexec as a fallback for hosts without the new helper or
+#      with kernel.unprivileged_userns_clone=0.
+#
+# Set VEIL_FORCE_PKEXEC=1 to override path 1 and always use pkexec
+# (useful while the engine refactor is in progress; the user-ns
+# engine path is gated behind VEIL_USERNS_ENGINE=1 until that lands).
+set -e
+
+BIN="${VEIL_GUI_BIN:-/usr/local/bin/veil-gui}"
+BRIDGE="${VEIL_BRIDGE:-/usr/local/libexec/veil-bridge}"
+LOG="${VEIL_GUI_LOG:-/tmp/veil-gui.log}"
+
+if [ ! -x "$BIN" ]; then
+  echo "Veil GUI binary not found at $BIN" >&2
+  exit 1
+fi
+
+# ---- Probe the user-ns engine path. ----
+# Two prerequisites:
+#   a) veil-bridge present with CAP_NET_ADMIN (so the engine child can
+#      ask the parent to set up host-side veth + NAT)
+#   b) kernel allows unprivileged user namespaces
+#
+# When VEIL_USERNS_ENGINE=1 AND both prereqs hold, run the GUI as the
+# invoking user with no pkexec. Otherwise fall through to pkexec.
+
+probe_userns_path() {
+  [ "${VEIL_FORCE_PKEXEC:-0}" = "1" ] && return 1
+  [ "${VEIL_USERNS_ENGINE:-0}" = "1" ] || return 1
+  # unprivileged user namespaces enabled? Default 1 on most modern
+  # distros; some hardened kernels (Debian + restricted, Tails) ship 0.
+  if [ -r /proc/sys/kernel/unprivileged_userns_clone ]; then
+    [ "$(cat /proc/sys/kernel/unprivileged_userns_clone)" = "1" ] || return 1
+  fi
+  # Uplink: prefer pasta — it provides the netns uplink with NO host
+  # capability, so the user-ns path needs nothing privileged at all. Only
+  # if pasta is absent do we require the cap_net_admin veil-bridge
+  # (whose `doctor` exits 0 only when the cap is present).
+  if command -v pasta >/dev/null 2>&1; then
+    return 0
+  fi
+  [ -x "$BRIDGE" ] || return 1
+  "$BRIDGE" doctor >/dev/null 2>&1 || return 1
+  return 0
+}
+
+if probe_userns_path; then
+  echo "veil-gui-launcher: using user-ns engine path (no pkexec)" >&2
+  exec env \
+    VEIL_BRIDGE="$BRIDGE" \
+    "$BIN" 2>>"$LOG"
+fi
+echo "veil-gui-launcher: using pkexec path" >&2
+
+# Make sure XWayland (or X11) is reachable by root.
+if command -v xhost >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+  xhost +si:localuser:root >/dev/null 2>&1 || true
+  trap 'xhost -si:localuser:root >/dev/null 2>&1 || true' EXIT
+fi
+
+# Copy our XAUTHORITY to a root-readable location (the original is in
+# /run/user/<uid> mode 0700 which root *can* read but pkexec sometimes
+# loses access; cp is defensive).
+ROOT_XAUTH=""
+if [ -n "${XAUTHORITY:-}" ] && [ -r "$XAUTHORITY" ]; then
+  ROOT_XAUTH="/tmp/veil-xauth.$$"
+  cp "$XAUTHORITY" "$ROOT_XAUTH"
+  chmod 0644 "$ROOT_XAUTH"
+  trap 'rm -f "$ROOT_XAUTH"; xhost -si:localuser:root >/dev/null 2>&1 || true' EXIT
+fi
+
+exec pkexec env \
+  DISPLAY="${DISPLAY:-:0}" \
+  XAUTHORITY="${ROOT_XAUTH:-${XAUTHORITY:-}}" \
+  XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+  DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
+  PULSE_SERVER="${PULSE_SERVER:-}" \
+  HOME="${HOME:-/root}" \
+  USER="root" \
+  GDK_BACKEND=x11 \
+  NO_AT_BRIDGE=1 \
+  "$BIN" 2>>"$LOG"

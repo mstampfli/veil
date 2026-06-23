@@ -1,0 +1,22 @@
+[Desktop Entry]
+Type=Application
+Version=1.1
+Name=Veil — Isolated Browser (Docker)
+GenericName=Network-isolated browser
+Comment=Launch a browser whose traffic is routed through veil, in a container
+# Clickable launcher for the containerized veil. Install it for your user:
+#   cp packaging/docker/veil-docker.desktop ~/.local/share/applications/
+#
+# Prerequisites (see packaging/docker/README.md):
+#   1. veil-docker on PATH:  sudo ln -s "$PWD/packaging/docker/veil-docker" /usr/local/bin/veil-docker
+#   2. build the browser image (bundles Firefox + a "browser" tor profile):
+#        docker build -f packaging/docker/Dockerfile --build-arg WITH_BROWSER=1 -t veil-browser .
+#   3. once per login session, allow the container to reach your X display:
+#        xhost +local:
+#
+# Uses the veil-browser image + bundled "browser" tor profile. Edit to taste.
+Exec=env VEIL_DOCKER_IMAGE=veil-browser veil-docker --x11 run browser -- firefox
+Terminal=false
+Icon=veil
+Categories=Network;Security;WebBrowser;
+Keywords=veil;tor;vpn;proxy;anonymity;isolation;

@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Veil</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">V</div>
+      <div>
+        <div class="title">Veil</div>
+        <div class="subtitle">tunnel · isolate · forge</div>
+      </div>
+    </div>
+    <nav>
+      <div class="nav-group">Run</div>
+      <button class="nav-item active" data-view="profiles" data-icon="layers">Profiles</button>
+      <button class="nav-item" data-view="dashboard" data-icon="activity">Dashboard</button>
+
+      <div class="nav-group">Configure</div>
+      <button class="nav-item" data-view="new" data-icon="plus">New profile</button>
+      <button class="nav-item" data-view="bulk" data-icon="upload">Bulk import</button>
+
+      <div class="nav-group">Inspect</div>
+      <button class="nav-item" data-view="tor" data-icon="circuit">Tor circuits</button>
+      <button class="nav-item" data-view="logs" data-icon="terminal">Logs</button>
+      <button class="nav-item" data-view="doctor" data-icon="stethoscope">Doctor</button>
+
+      <div class="nav-group">System</div>
+      <button class="nav-item" data-view="about" data-icon="info">About</button>
+      <button class="nav-item" id="btn-report-bug" data-icon="bug" title="Report a bug on GitHub — nothing is sent automatically">Report a bug</button>
+    </nav>
+    <div class="sidebar-footer" id="license-footer">
+      <span class="lic-dot"></span>
+      <span class="lic-tier">free</span>
+      <span class="spacer"></span>
+      <button class="btn small icon-only ghost" id="btn-quit" title="Quit Veil — stops all running profiles and exits cleanly"><span data-icon="x" class="icon-slot"></span></button>
+    </div>
+  </aside>
+
+  <main>
+    <!-- Profiles list -->
+    <section class="view active" id="view-profiles">
+      <header>
+        <div class="h-title-wrap" data-pre="01 · run">
+          <h1>Profiles</h1>
+          <div class="sub">Network-isolated app profiles. Each runs in its own namespace with its own chain.</div>
+        </div>
+        <div class="h-actions">
+          <button class="btn primary" id="btn-new"><span data-icon="plus" class="icon-slot"></span>New profile</button>
+        </div>
+      </header>
+      <div id="profile-list" class="profile-list"></div>
+      <div class="empty hidden" id="profile-empty">
+        <h2>No profiles yet</h2>
+        <p>Create one by hand or bulk-import a folder of WireGuard / OpenVPN configs.</p>
+        <button class="btn primary" id="btn-empty-new">Create your first profile</button>
+      </div>
+    </section>
+
+    <!-- New / Edit profile -->
+    <section class="view" id="view-new">
+      <header>
+        <div class="h-title-wrap" data-pre="02 · configure">
+          <h1 id="form-title">New profile</h1>
+          <div class="sub">Define how an app reaches the network and what identity it presents.</div>
+        </div>
+      </header>
+      <form id="profile-form" data-mode="custom">
+        <fieldset>
+          <legend>Use case</legend>
+          <p class="hint">Pick the closest fit. Each preset auto-fills sensible defaults and hides fields you don't need. You can tweak everything from <b>Custom</b>.</p>
+          <label>Profile preset
+            <select name="profile_mode" id="profile-mode">
+              <option value="anonymity">Anonymous browsing — Tor exit, country lock, leak-tight</option>
+              <option value="identity">Stable identity — single VPN/proxy, persona, country or IP lock</option>
+              <option value="pool">Account warming — residential proxies, ASN lock, persona per region</option>
+              <option value="custom" selected>Custom — show every field</option>
+            </select>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Identity</legend>
+          <div class="field-2col">
+            <label>Name <input name="name" required pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,62}" placeholder="e.g. mullvad-de-investigations" /></label>
+            <label>Description <input name="description" placeholder="Short note about what this profile is for" /></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Network chain</legend>
+          <p class="hint">Hops apply in order from your host to the exit. Each hop runs inside the profile's namespace.</p>
+          <div id="chain-hops"></div>
+          <button type="button" class="btn small" id="add-hop"><span data-icon="plus" class="icon-slot"></span>Add hop</button>
+        </fieldset>
+
+        <fieldset>
+          <legend>Application</legend>
+          <label>Preset
+            <select name="preset" id="preset-select">
+              <option value="">(custom binary)</option>
+            </select>
+          </label>
+          <label>Binary path <input name="binary" placeholder="auto from preset" /></label>
+          <label>Args (one per line) <textarea name="args" rows="3"></textarea></label>
+          <label>Data directory <input name="data_dir" placeholder="optional, isolated profile dir" /></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Network policy</legend>
+          <label>DNS (comma separated) <input name="dns" placeholder="1.1.1.1, 9.9.9.9" /></label>
+          <label class="checkbox">
+            <input type="checkbox" name="kill_switch" checked />
+            Kill switch — fail closed if the tunnel drops
+          </label>
+          <label class="checkbox mode-hide-anon mode-hide-id mode-hide-pool">
+            <input type="checkbox" name="env_auto_from_exit" />
+            Auto-derive timezone &amp; language from the VPN exit country (legacy — persona country drives this automatically when set)
+          </label>
+          <label class="checkbox mode-hide-id">
+            <input type="checkbox" name="randomize_chain" />
+            Randomize chain on each launch (mandatory hops always run; optional hops 50%)
+          </label>
+          <label class="mode-hide-anon">Auto-reroll every (e.g. <code>30m</code>, <code>1h</code> — empty = never)
+            <input name="reroll_every" placeholder="" />
+          </label>
+        </fieldset>
+
+        <fieldset class="pro-section">
+          <legend>Anti-detect <span class="pro-badge">Pro</span></legend>
+          <p class="hint">Two modes that compose: <b>cohort blending</b> (look like every other RFP user) and/or <b>impersonation</b> (look like a specific real device). Use either or both — when both are set, the persona's specific values feed the JS extension and the strict-tier TLS/HTTP mediation + per-profile CA still apply.</p>
+          <p class="hint" id="anti-persona-combo-hint" style="display: none; font-size: 11.5px; background: var(--bg-1); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;">
+            <b>Combined mode active.</b> Persona's specific values (UA / GPU / screen / timezone) win over the generic blend in the JS extension. Strict-tier TLS handshake spoofing, HTTP mediator, and per-profile CA still apply. This is the strongest configuration.
+          </p>
+          <label>Anti-fingerprint
+            <select name="anti_fingerprint">
+              <option value="">off</option>
+              <option value="basic">basic — JS + TCP + time-ns hardening, no TLS interception</option>
+              <option value="strict">strict — full TLS-coherence, installs per-profile CA</option>
+            </select>
+          </label>
+          <p class="hint" style="font-size: 11.5px; opacity: 0.75; margin-top: -4px;">
+            <b>basic</b>: cohort-blend at JS layer + TCP fingerprint persona + time namespace + kill switch. No CA install.<br>
+            <b>strict</b>: everything in basic, plus a per-profile TLS interception CA so the wire-level TLS handshake matches your persona. The CA is installed only into this profile's data dir (your normal browsers stay untouched). One-time consent dialog on first launch.
+          </p>
+          <label>Persona
+            <select name="persona" id="persona-select">
+              <option value="">(none)</option>
+            </select>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" name="forge_persona" />
+            Forge unique persona for this profile — different profile = different "person"
+          </label>
+          <fieldset id="forge-options" style="margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-1);">
+            <legend style="font-size: 11.5px; opacity: 0.75; padding: 0 6px;">Forge constraints (all optional — empty = auto-pick)</legend>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <label style="font-size: 12px;">Form factor
+                <select id="forge-form" name="forge_form_factor">
+                  <option value="">(any)</option>
+                  <option value="desktop">Desktop</option>
+                  <option value="mobile">Mobile</option>
+                </select>
+              </label>
+              <label style="font-size: 12px;">OS
+                <select id="forge-os" name="forge_os">
+                  <option value="">(auto from form factor)</option>
+                </select>
+              </label>
+              <label style="font-size: 12px;">Browser
+                <select id="forge-browser" name="forge_browser">
+                  <option value="">(auto from OS)</option>
+                </select>
+              </label>
+              <label style="font-size: 12px;">Country
+                <select id="forge-country" name="forge_country">
+                  <option value="">(auto)</option>
+                </select>
+              </label>
+            </div>
+            <p id="forge-error" class="hint" style="display:none; color: var(--err); margin-top: 6px; font-size: 11.5px;"></p>
+          </fieldset>
+          <div style="display: flex; gap: 8px; margin-top: 6px;">
+            <button type="button" class="btn small" id="btn-persona-preview">Preview forged persona</button>
+            <button type="button" class="btn small" id="btn-persona-reroll">Re-roll</button>
+          </div>
+          <pre id="persona-preview-out" class="hidden mono" style="margin-top: 10px; padding: 12px; background: var(--bg-1); border: 1px solid var(--line); border-radius: 8px; font-size: 11.5px; line-height: 1.55; max-height: 240px; overflow: auto;"></pre>
+          <label class="mode-hide-anon mode-hide-pool">TCP stack persona
+            <select name="tcp_persona">
+              <option value="">(auto — match browser persona OS)</option>
+              <option value="random">Random per launch</option>
+              <option value="windows">Windows</option>
+              <option value="macos">macOS</option>
+              <option value="linux">Linux (explicit)</option>
+              <option value="ios">iOS</option>
+              <option value="android">Android</option>
+            </select>
+          </label>
+          <label class="mode-hide-anon mode-hide-pool">CPU throttle (e.g. <code>30%</code> — defeats JS perf benchmarks; empty = full speed)
+            <input name="cpu_throttle" placeholder="" />
+          </label>
+          <label class="checkbox mode-hide-anon mode-hide-pool">
+            <input type="checkbox" name="behavioral_jitter" />
+            Behavioral jitter — keystroke dynamics defeated; ALL host typing is jittered while profile runs (Linux)
+          </label>
+          <label class="checkbox mode-hide-anon mode-hide-pool">
+            <input type="checkbox" name="mouse_jitter" />
+            Mouse jitter — ±1 px + timing noise; defeats mouse-curvature fingerprinting (Linux)
+          </label>
+        </fieldset>
+
+        <fieldset class="pro-section">
+          <legend>Opsec — endpoint pinning <span class="pro-badge">Pro</span></legend>
+          <p class="hint">Lock the network exit per profile. The profile refuses to launch if the actual exit drifts from what's expected.</p>
+          <label class="checkbox">
+            <input type="checkbox" name="locked_endpoint" />
+            Lock endpoint (refuse to launch on drift; needs at least one box below ticked)
+          </label>
+          <p class="hint">Tick what you want to lock. Each is independent — combine any subset. The corresponding input shows only when its box is ticked; leave blank to auto-fill (country from persona at launch, ASN/IP captured on first successful verification).</p>
+          <label class="checkbox">
+            <input type="checkbox" name="lock_country" data-toggles="lock-country-fields" />
+            Lock country — exit IP must geolocate to require_exit_country (auto-derives from persona if blank)
+          </label>
+          <div class="lock-fields" data-show-when="lock-country-fields">
+            <label>Require exit country (ISO code, e.g. <code>DE</code>; empty + Lock country on = derive from persona)
+              <input name="require_exit_country" placeholder="" maxlength="2" />
+            </label>
+          </div>
+          <label class="checkbox mode-hide-anon">
+            <input type="checkbox" name="lock_asn" data-toggles="lock-asn-fields" />
+            Lock ASN — provider stays consistent across IP rotations (e.g. <code>AS9009</code>)
+          </label>
+          <div class="lock-fields" data-show-when="lock-asn-fields">
+            <label>Require exit ASN (empty = capture first observed ASN on first launch)
+              <input name="require_exit_asn" placeholder="AS9009" />
+            </label>
+          </div>
+          <label class="checkbox mode-hide-anon mode-hide-pool">
+            <input type="checkbox" name="lock_ip" data-toggles="lock-ip-fields" />
+            Lock IP — exact IP match (rejected for Tor; for static-IP VPN / dedicated VPS)
+          </label>
+          <div class="lock-fields" data-show-when="lock-ip-fields">
+            <label>Require exit IP (empty = capture first observed IP on first launch)
+              <input name="require_exit_ip" placeholder="" />
+            </label>
+          </div>
+          <label class="mode-hide-anon">Require exit city (empty = no city check)
+            <input name="require_exit_city" placeholder="Berlin" />
+          </label>
+          <label class="mode-hide-anon mode-hide-pool">Schedule window in persona TZ (<code>HH:MM-HH:MM</code>, empty = always)
+            <input name="schedule_window" placeholder="08:00-22:00" />
+          </label>
+        </fieldset>
+
+        <fieldset class="pro-section">
+          <legend>DNS shape <span class="pro-badge">Pro</span></legend>
+          <p class="hint">By default Veil routes DNS via the chain (Tor's DNSPort or the proxy). With <code>dns_match_exit</code> on, every lookup is forced through DoH to an anycast resolver, riding the chain — so the resolver IP visible to upstream auth-NS records lands geographically at the chain's exit. Whoer-style "DNS doesn't match exit" tests then pass without weakening leak protection. The transparent DNS REDIRECT stays in place as a safety net.</p>
+          <label class="checkbox">
+            <input type="checkbox" name="dns_match_exit" />
+            Match DNS resolver location to exit (DoH-via-chain)
+          </label>
+          <label>DoH resolver
+            <select id="dns_match_preset">
+              <option value="https://194.242.2.2/dns-query">Mullvad — Sweden, no logs (recommended)</option>
+              <option value="https://194.242.2.3/dns-query">Mullvad ad-block — Sweden, blocks ad domains</option>
+              <option value="https://194.242.2.5/dns-query">Mullvad family — Sweden, blocks adult/gambling</option>
+              <option value="https://9.9.9.9/dns-query">Quad9 — Switzerland non-profit, blocks malware</option>
+              <option value="https://1.1.1.1/dns-query">Cloudflare — US, fast anycast</option>
+              <option value="custom">Custom URL (specify below)</option>
+            </select>
+          </label>
+          <label id="dns_match_custom_label" style="display: none;">Custom DoH URL (must use an IP literal — DoH bootstrap can't depend on DNS)
+            <input name="dns_match_endpoint" placeholder="https://194.242.2.2/dns-query" />
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" name="dns_proxy" />
+            In-netns DoH proxy — every UDP/53 in the namespace forced through Veil's bundled DoH proxy (catches OCSP / captive-portal / cert-validation / non-browser queries)
+          </label>
+          <p class="hint">When on, spawns <code>veil dohproxy</code> inside the profile's netns. ALL DNS queries (browser primary, OCSP, captive-portal probes, anything) get routed through it as DoH to the upstream below — no exceptions, no fallback to Tor's DNSPort. Closes the side-query leak surface (~5% of DNS in a typical session). Built into Veil; no extra package install required.</p>
+          <label>DoH proxy upstream (must be an IP literal; empty = same as DoH resolver above)
+            <input name="dns_proxy_upstream" placeholder="https://194.242.2.2/dns-query" />
+          </label>
+          <p class="hint">Requires at least one tunnel hop (WireGuard / OpenVPN / Tor). Without one, DoH packets travel direct from your real network — that would leak your host IP to the resolver and defeat the purpose. Validation refuses unsafe configs.</p>
+        </fieldset>
+
+        <div class="form-actions">
+          <button type="submit" class="btn primary"><span data-icon="check" class="icon-slot"></span>Save profile</button>
+          <button type="button" class="btn ghost" id="cancel-form">Cancel</button>
+        </div>
+        <div id="form-error" class="error hidden"></div>
+      </form>
+    </section>
+
+    <!-- Bulk import -->
+    <section class="view" id="view-bulk">
+      <header>
+        <div class="h-title-wrap" data-pre="02 · configure">
+          <h1>Bulk import</h1>
+          <div class="sub">Drop a folder of WireGuard <code>.conf</code> or OpenVPN <code>.ovpn</code> files. Veil creates one profile per server.</div>
+        </div>
+      </header>
+      <form id="bulk-form" style="max-width: 720px;">
+        <label>Path to file or directory
+          <input name="path" required placeholder="/home/you/Downloads/proton-wg/" />
+        </label>
+        <label>Format
+          <select name="format">
+            <option value="wg">WireGuard (.conf)</option>
+            <option value="ovpn">OpenVPN (.ovpn)</option>
+          </select>
+        </label>
+        <label>Default app preset
+          <select name="preset" id="bulk-preset"></select>
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" name="kill_switch" checked />
+          Kill switch on for new profiles
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="btn primary"><span data-icon="upload" class="icon-slot"></span>Import</button>
+        </div>
+        <div id="bulk-result"></div>
+      </form>
+    </section>
+
+    <!-- Doctor -->
+    <section class="view" id="view-doctor">
+      <header>
+        <div class="h-title-wrap" data-pre="03 · inspect">
+          <h1>Doctor</h1>
+          <div class="sub">System checks: kernel features, capabilities, GeoIP DB, audit dir, depot tools.</div>
+        </div>
+        <div class="h-actions">
+          <button class="btn primary" id="btn-run-doctor"><span data-icon="play" class="icon-slot"></span>Run checks</button>
+        </div>
+      </header>
+      <ul id="doctor-results"></ul>
+    </section>
+
+    <!-- Dashboard -->
+    <section class="view" id="view-dashboard">
+      <header>
+        <div class="h-title-wrap" data-pre="01 · run">
+          <h1>Dashboard</h1>
+          <div class="sub">Live state of the selected running profile.</div>
+        </div>
+        <div class="h-actions">
+          <select id="dash-profile-pick"></select>
+          <button class="btn small" id="btn-dash-refresh" title="Re-poll IP / geo / path / map immediately"><span data-icon="refresh" class="icon-slot"></span>Refresh</button>
+          <button class="btn small" id="btn-dash-probe" title="Drive the running browser via CDP to fetch full geo from ipinfo (requires Chromium-family browser)"><span data-icon="globe" class="icon-slot"></span>Probe</button>
+        </div>
+      </header>
+      <div id="dash-empty" class="empty">
+        <h2>No running profile</h2>
+        <p>Launch a profile from the <b>Profiles</b> tab to see live stats here.</p>
+      </div>
+
+      <div id="dash-grid" class="hidden">
+        <div class="stat-strip">
+          <div class="stat-card" id="stat-status">
+            <div class="stat-label">Status</div>
+            <div class="stat-value" id="stat-status-val">—</div>
+            <div class="stat-sub" id="stat-status-sub">—</div>
+          </div>
+          <div class="stat-card" id="stat-exit">
+            <div class="stat-label">Exit</div>
+            <div class="stat-value" id="stat-exit-val">
+              <img id="stat-flag-img" class="flag-img lg hidden" alt="" />
+              <span id="stat-exit-ip">—</span>
+            </div>
+            <div class="stat-sub" id="stat-exit-loc">—</div>
+          </div>
+          <div class="stat-card" id="stat-asn">
+            <div class="stat-label">ASN / Org</div>
+            <div class="stat-value" id="stat-asn-val">—</div>
+            <div class="stat-sub" id="stat-asn-sub">—</div>
+          </div>
+          <div class="stat-card" id="stat-rate">
+            <div class="stat-label">Throughput</div>
+            <div class="stat-value" id="stat-rate-val">—</div>
+            <div class="stat-sub" id="stat-rate-sub">↓ —  ↑ —</div>
+          </div>
+        </div>
+
+        <div class="dash-grid">
+          <div class="dash-card dash-card-wide">
+            <div class="dash-card-title">Path</div>
+            <div id="dash-path" class="dash-path">—</div>
+          </div>
+          <div class="dash-card dash-card-wide">
+            <div class="dash-card-title">Traffic — last 60 s</div>
+            <canvas id="dash-traffic" width="640" height="160"></canvas>
+            <div class="dash-traffic-legend">
+              <span><span class="swatch" style="background: var(--accent)"></span>down</span>
+              <span><span class="swatch" style="background: var(--good)"></span>up</span>
+              <span class="dash-rate-now" id="dash-rate-now"></span>
+            </div>
+          </div>
+          <div class="dash-card dash-card-wide">
+            <div class="dash-card-title">Geography</div>
+            <div id="dash-map-wrap"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tor circuits -->
+    <section class="view" id="view-tor">
+      <header>
+        <div class="h-title-wrap" data-pre="03 · inspect">
+          <h1>Tor circuits</h1>
+          <div class="sub">Live circuits from the running profile's Tor control port.</div>
+        </div>
+        <div class="h-actions">
+          <select id="tor-profile-pick"></select>
+          <button class="btn small" id="btn-tor-refresh"><span data-icon="refresh" class="icon-slot"></span>Refresh</button>
+          <button class="btn small primary" id="btn-tor-newcircuit"><span data-icon="circuit" class="icon-slot"></span>New circuit</button>
+        </div>
+      </header>
+      <div id="tor-circuits"></div>
+    </section>
+
+    <!-- Logs -->
+    <section class="view" id="view-logs">
+      <header>
+        <div class="h-title-wrap" data-pre="03 · inspect">
+          <h1>Logs</h1>
+          <div class="sub">Engine + audit log. Local-only.</div>
+        </div>
+        <div class="h-actions">
+          <button class="btn small" id="btn-logs-refresh"><span data-icon="refresh" class="icon-slot"></span>Refresh</button>
+          <label class="checkbox" style="margin: 0; gap: 6px;">
+            <input type="checkbox" id="logs-auto" />
+            <span style="font-size: 12px;">Auto-refresh</span>
+          </label>
+        </div>
+      </header>
+      <p id="log-path"></p>
+      <pre id="log-pre"></pre>
+    </section>
+
+    <!-- About -->
+    <section class="view" id="view-about">
+      <header>
+        <div class="h-title-wrap" data-pre="04 · system">
+          <h1>About</h1>
+          <div class="sub">Per-app tunnel isolation + anti-detect identity engine.</div>
+        </div>
+      </header>
+
+      <div class="about-card" id="about-license-box">
+        <div class="lic-row">
+          <div>
+            <div class="lic-label">License</div>
+            <div class="lic-tier" id="about-license">free</div>
+            <div class="lic-detail" id="about-license-detail"></div>
+          </div>
+          <a id="about-upgrade-link" href="#" target="_blank" rel="noopener" class="btn primary" style="display: none; text-decoration: none;">Upgrade to Pro</a>
+        </div>
+      </div>
+
+      <p class="intro">Local-first. No telemetry. Profiles stored as YAML under your user config dir; audit log + crash reports under <code>~/.config/veil/</code>.</p>
+
+      <div class="about-meta">
+        <span>Version <span id="about-version" class="mono">dev</span></span>
+        <a href="https://github.com/marcstampfli1/veil" target="_blank" rel="noopener">source</a>
+        <a href="https://github.com/marcstampfli1/veil/issues" target="_blank" rel="noopener">issues</a>
+      </div>
+
+      <fieldset style="max-width: 720px; margin-top: 22px;">
+        <legend>Install license</legend>
+        <p class="hint">Paste the contents of your <code>license.jwt</code> file. Validation is offline.</p>
+        <textarea id="license-input" rows="4" style="width: 100%;" placeholder="eyJhbGciOiJFZERTQSI..."></textarea>
+        <div class="form-actions">
+          <button type="button" class="btn primary" id="btn-license-install"><span data-icon="key" class="icon-slot"></span>Install</button>
+        </div>
+        <div id="license-result" style="font-size: 13px; margin-top: 10px;"></div>
+      </fieldset>
+    </section>
+  </main>
+
+  <div id="toast-stack"></div>
+  <script src="/wails/runtime.js"></script>
+  <script src="icons.js"></script>
+  <script src="app.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

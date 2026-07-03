@@ -1,0 +1,34 @@
+# Capless veil in Docker. `docker compose run --rm veil selftest freetor`
+# or set `command:` to your own profile / app.
+#
+# The three security-opts LOOSEN the container's own sandbox (seccomp,
+# AppArmor, /proc masking) so veil can build its own per-app isolation inside.
+# They add NO Linux capabilities — the veil process runs with CapEff=0.
+# Needs a recent passt (this image is Debian 13 based; that's handled).
+services:
+  veil:
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile
+    image: veil
+    # Hardened by default: drop ALL capabilities, add back ONLY the three the
+    # entrypoint needs to set up /dev/net/tun and drop to the unprivileged
+    # 'veil' user. veil itself then runs with CapEff=0.
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - SETPCAP
+    security_opt:
+      # Tight custom seccomp (Docker default + only veil's namespace/mount
+      # syscalls), not unconfined. Path is relative to this compose file.
+      - seccomp=./seccomp.json
+      - apparmor=unconfined
+      - systempaths=unconfined
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    # Persist/override profiles by mounting your own:
+    # volumes:
+    #   - ./profiles:/home/veil/.config/veil/profiles
+    command: ["selftest", "freetor"]

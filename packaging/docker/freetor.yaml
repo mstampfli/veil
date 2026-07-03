@@ -1,0 +1,6 @@
+name: freetor
+chain:
+    - kind: tor
+app:
+    preset: curl
+kill_switch: true

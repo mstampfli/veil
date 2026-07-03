@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+# veil-docker — run veil in its hardened container without the long command.
+#
+#   veil-docker build                     # build the image once
+#   veil-docker selftest freetor          # any veil subcommand
+#   veil-docker run <profile> -- <cmd>    # run an app through a profile
+#   veil-docker --x11 run <p> -- firefox  # headful: share the host X11 display
+#   veil-docker --x11 gui                 # the veil desktop GUI (WITH_GUI image)
+#   veil-docker --wayland gui             # same, sharing the host Wayland socket
+#   veil-docker --wayland --browser brave # mount your host Brave/Chrome + run it
+#                                         #   isolated (no browser bundled in the image)
+#   veil-docker --pro ./veil-pro <cmd>    # run YOUR licensed Pro binary (+ license)
+#                                         #   in the hardened container (free image stays generic)
+#
+# Capless by default (CapEff=0): drops all caps except the three the entrypoint
+# uses to drop to the unprivileged user, a tight custom seccomp profile, and the
+# tun device. Your profiles in ~/.config/veil/profiles are mounted in.
+set -euo pipefail
+
+IMAGE="${VEIL_DOCKER_IMAGE:-veil}"
+# Resolve through a symlink (the recommended install is a symlink on PATH) so
+# HERE is the real packaging/docker dir -- it holds Dockerfile, seccomp.json and
+# the shipped profiles this script references.
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+SECCOMP="${VEIL_SECCOMP:-$HERE/seccomp.json}"
+PROFILES="${VEIL_PROFILES:-$HOME/.config/veil/profiles}"
+
+# Container engine. Standard Docker is fully supported and works on any distro.
+# When a real `podman` binary is present we drive it directly: on such systems
+# `docker` is almost always the podman-docker shim, whose docker-compat layer
+# silently drops some flags -- podman is the actual engine. A pure Docker host
+# (no podman installed) uses docker. Override with VEIL_DOCKER_ENGINE=docker|podman.
+ENGINE="${VEIL_DOCKER_ENGINE:-}"
+if [ -z "$ENGINE" ]; then
+  if   command -v podman >/dev/null 2>&1; then ENGINE=podman
+  elif command -v docker >/dev/null 2>&1; then ENGINE=docker
+  else echo "veil-docker: neither docker nor podman found on PATH" >&2; exit 1; fi
+fi
+
+if [ "${1:-}" = "build" ]; then
+  exec "$ENGINE" build -f "$HERE/Dockerfile" -t "$IMAGE" "$HERE/../.."
+fi
+
+x11=()
+if [ "${1:-}" = "--x11" ] || [ "${VEIL_DOCKER_X11:-0}" = "1" ]; then
+  [ "${1:-}" = "--x11" ] && shift
+  # Display via the X11 unix socket (not network-namespaced, so it crosses
+  # veil's netns); network still goes through veil. Run `xhost +local:` first.
+  # --shm-size: browsers (Firefox/Chromium) need far more than Docker's default
+  # 64M of /dev/shm or they crash on launch.
+  x11=(-e "DISPLAY=${DISPLAY:-:0}" -e GDK_BACKEND=x11 -v /tmp/.X11-unix:/tmp/.X11-unix --shm-size=512m)
+fi
+
+wl=()
+if [ "${1:-}" = "--wayland" ] || [ "${VEIL_DOCKER_WAYLAND:-0}" = "1" ]; then
+  [ "${1:-}" = "--wayland" ] && shift
+  # Display via the Wayland unix socket (also crosses veil's netns). On a
+  # Wayland session this is the reliable path (X11 over XWayland from a rootless
+  # container is flakier). GTK is pinned to the wayland backend. WAYLAND_DISPLAY
+  # may be a bare name under XDG_RUNTIME_DIR or an absolute path; handle both.
+  rtdir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  wd="${WAYLAND_DISPLAY:-wayland-0}"
+  case "$wd" in
+    /*) sock="$wd" ;;
+    *)  sock="$rtdir/$wd" ;;
+  esac
+  wl=(-e "WAYLAND_DISPLAY=$wd" -e GDK_BACKEND=wayland -e "XDG_RUNTIME_DIR=$rtdir" \
+      -v "$sock:$sock" --shm-size=512m)
+fi
+
+# --browser <name|path>: bind-mount a HOST-installed browser into the container
+# and (by default) launch it through the 'browser' tor profile. No rebuild, no
+# fat image -- only the browser's own install dir is mounted read-only; its
+# NSS/GTK/X deps come from the image ($BROWSER_LIBS in the GUI/browser variants).
+# The mounted browser also becomes visible to veil's presets inside the
+# container, so the GUI's browser picker and `run <p> -- <bin>` pick it up too.
+# glibc caveat: the browser binary must not require a newer glibc than the image
+# (Debian 12 / 2.36). Chrome/Brave target old glibc and work; host Firefox needs
+# newer, so use the bundled firefox-esr (WITH_BROWSER image) for Firefox.
+brmounts=(); browser_cmd=()
+if [ "${1:-}" = "--browser" ]; then
+  shift; bsel="${1:?veil-docker: --browser needs a browser name or path}"; shift
+  case "$bsel" in
+    /*)                   hbin="$bsel" ;;
+    brave)                hbin="$(command -v brave-browser brave 2>/dev/null | head -1)" ;;
+    chrome|google-chrome) hbin="$(command -v google-chrome google-chrome-stable 2>/dev/null | head -1)" ;;
+    chromium)             hbin="$(command -v chromium chromium-browser 2>/dev/null | head -1)" ;;
+    *)                    hbin="$(command -v "$bsel" 2>/dev/null)" ;;
+  esac
+  [ -n "$hbin" ] && [ -x "$hbin" ] || { echo "veil-docker: host browser '$bsel' not found on PATH" >&2; exit 1; }
+  real="$(readlink -f "$hbin")"; instdir="$(dirname "$real")"
+  case "$instdir" in
+    /usr/bin|/bin|/usr/sbin|/sbin|/usr/local/bin|/usr/local/sbin|/)
+      echo "veil-docker: '$bsel' lives in a system dir ($instdir) that can't be mounted over the container safely. Use the bundled firefox, or point --browser at a self-contained install dir." >&2; exit 1 ;;
+  esac
+  brmounts=(-v "$instdir:$instdir:ro")
+  # veil-docker bind-mounts YOUR profiles dir over the image's, which shadows the
+  # shipped 'browser' profile. Layer it back in so --browser works regardless of
+  # what's in your profiles dir.
+  [ -f "$HERE/browser.yaml" ] && brmounts+=(-v "$HERE/browser.yaml:/home/veil/.config/veil/profiles/browser.yaml:ro")
+  echo "veil-docker: mounting host $bsel from $instdir (in-container binary: $real)" >&2
+  # Default: launch through the transparent 'browser' tor profile so ALL its
+  # traffic is routed. Override by passing your own veil command after the name.
+  # Chromium-family browsers refuse to run as root (the rootless container runs
+  # as container-root) and their own sandbox (nested userns) can't start inside
+  # the container, so add --no-sandbox. veil's netns still fully contains the
+  # network -- only tor's exit is reachable, so a renderer escape can't see your
+  # real IP; the isolation guard is veil's, not Chromium's.
+  extra=()
+  case "$bsel:$real" in *chrom*|*brave*|*chrome*) extra=(--no-sandbox) ;; esac
+  browser_cmd=(run browser -- "$real" "${extra[@]}")
+fi
+
+# --pro <binary> [--license <file>]: run YOUR licensed Pro veil binary in the
+# hardened container instead of the free one baked into the image, keeping the
+# per-buyer model intact (the image stays generic; your binary + license make it
+# Pro). The Pro CLI is a static build, so it drops in with no glibc coupling.
+# The license is a runtime file, so we mount it read-only at the path veil reads
+# (~/.config/veil/license.jwt); with no --license we mount your host one if present.
+pro_mounts=()
+if [ "${1:-}" = "--pro" ]; then
+  shift; probin="${1:?veil-docker: --pro needs the path to your licensed Pro veil binary}"; shift
+  [ -f "$probin" ] && [ -x "$probin" ] || { echo "veil-docker: Pro binary not found or not executable: $probin" >&2; exit 1; }
+  pro_mounts=(-v "$(readlink -f "$probin"):/usr/local/bin/veil:ro")
+  lic=""
+  if [ "${1:-}" = "--license" ]; then
+    shift; lic="${1:?veil-docker: --license needs a path to your license.jwt}"; shift
+    [ -f "$lic" ] || { echo "veil-docker: license file not found: $lic" >&2; exit 1; }
+  elif [ -f "$HOME/.config/veil/license.jwt" ]; then
+    lic="$HOME/.config/veil/license.jwt"
+  fi
+  [ -n "$lic" ] && pro_mounts+=(-v "$(readlink -f "$lic"):/home/veil/.config/veil/license.jwt:ro")
+  echo "veil-docker: using Pro binary $probin${lic:+ + license $lic}" >&2
+fi
+
+# Is the engine rootless? Rootless engines map container uid 0 to YOUR host uid
+# (and other container uids to unprivileged subuids). podman with no daemon is
+# rootless whenever we aren't root; rootless Docker reports it in `info`.
+rootless=0
+if [ "$ENGINE" = podman ]; then
+  case "$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null)" in
+    true) rootless=1 ;;
+    "")   [ "$(id -u)" != 0 ] && rootless=1 ;;   # older podman: fall back to euid
+  esac
+else
+  docker info 2>/dev/null | grep -qi 'rootless' && rootless=1
+fi
+
+# Capability + privilege model:
+#   * Rootful engine: the container starts as REAL root; the entrypoint drops to
+#     the unprivileged 'veil' user (uid 1000 = your host uid, no remap) using
+#     three caps -> CapEff=0. Display reachable via `xhost +local:`.
+#   * Rootless engine + display: the process must be BOTH your host uid (to open
+#     the display socket) AND non-root (veil's engine uses the unprivileged
+#     user-ns path -- creating the mount ns needs CAP_SYS_ADMIN, which a capless
+#     uid-0 lacks; a non-root uid gets it inside the fresh userns). Rootless
+#     podman reconciles both with --userns=keep-id (maps you to the in-container
+#     veil user, uid 1000). Rootless Docker has no keep-id equivalent, so its
+#     capless GUI/browser isn't supported -- use rootful Docker or podman.
+#     (Headless `veil-docker <cmd>` still works fine on rootless Docker.)
+gui_env=()
+caps=(--cap-drop ALL --cap-add SETUID --cap-add SETGID --cap-add SETPCAP)
+if { [ ${#x11[@]} -gt 0 ] || [ ${#wl[@]} -gt 0 ]; } && [ "$rootless" = 1 ]; then
+  if [ "$ENGINE" = podman ]; then
+    gui_env=(--userns=keep-id); caps=(--cap-drop ALL)
+  else
+    echo "veil-docker: rootless Docker can't run the capless GUI/browser -- the display needs the container to run as your uid (container-root) but veil's engine needs a non-root uid, and rootless Docker has no --userns=keep-id to bridge them. Use a rootful Docker daemon, or podman." >&2
+    exit 1
+  fi
+fi
+
+tty=()
+[ -t 0 ] && tty=(-it)
+
+seccomp_opt=(--security-opt "seccomp=$SECCOMP")
+[ -f "$SECCOMP" ] || { echo "veil-docker: seccomp profile not found at $SECCOMP; falling back to unconfined" >&2; seccomp_opt=(--security-opt seccomp=unconfined); }
+
+# Command: whatever the caller passed, or -- when only --browser was given --
+# the default "launch this browser through the tor profile".
+cmd=("$@")
+if [ ${#browser_cmd[@]} -gt 0 ] && [ ${#cmd[@]} -eq 0 ]; then
+  cmd=("${browser_cmd[@]}")
+fi
+
+mkdir -p "$PROFILES"
+exec "$ENGINE" run --rm "${tty[@]}" \
+  "${caps[@]}" \
+  "${seccomp_opt[@]}" \
+  --security-opt apparmor=unconfined \
+  --security-opt systempaths=unconfined \
+  --device /dev/net/tun \
+  -v "$PROFILES:/home/veil/.config/veil/profiles" \
+  "${pro_mounts[@]}" \
+  "${brmounts[@]}" \
+  "${gui_env[@]}" \
+  "${x11[@]}" \
+  "${wl[@]}" \
+  "$IMAGE" "${cmd[@]}"

@@ -1,0 +1,6 @@
+name: browser
+chain:
+    - kind: tor
+app:
+    preset: firefox
+kill_switch: true

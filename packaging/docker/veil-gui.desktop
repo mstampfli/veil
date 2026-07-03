@@ -1,0 +1,23 @@
+[Desktop Entry]
+Type=Application
+Version=1.1
+Name=Veil — Control Panel (Docker)
+GenericName=Network isolation control panel
+Comment=Run the veil desktop GUI from its hardened container
+# Clickable launcher for the containerized veil GUI. Install it for your user:
+#   cp packaging/docker/veil-gui.desktop ~/.local/share/applications/
+#
+# Prerequisites (see packaging/docker/README.md):
+#   1. veil-docker on PATH:  sudo ln -s "$PWD/packaging/docker/veil-docker" /usr/local/bin/veil-docker
+#   2. build the GUI image (bundles WebKitGTK + the veil-gui binary):
+#        docker build -f packaging/docker/Dockerfile --build-arg WITH_GUI=1 -t veil-gui .
+#   3. once per login session, allow the container to reach your X display:
+#        xhost +local:
+#
+# Uses the veil-gui image; the GUI embeds the engine and runs the same capless
+# path as the CLI. Swap --x11 for --wayland to share a Wayland socket instead.
+Exec=env VEIL_DOCKER_IMAGE=veil-gui veil-docker --x11 gui
+Terminal=false
+Icon=veil
+Categories=Network;Security;
+Keywords=veil;tor;vpn;proxy;anonymity;isolation;

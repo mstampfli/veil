@@ -1,15 +1,8 @@
 # Veil
 
-> [!CAUTION]
-> ## Veil is unmaintained, and it is NOT secure.
->
-> Veil is no longer developed. It has had no security review that its current code would pass,
-> known and unknown leaks may exist, and nothing in it is kept up to date with the tools it
-> drives (WireGuard, OpenVPN, Tor, iptables). Do not rely on it to hide your traffic or your
-> identity. Read it as a learning project, not as a privacy tool.
->
-> Nothing here comes with any guarantee. Treat every "works" in this repository as "worked on the
-> author's machine at the time".
+> [!NOTE]
+> **Unmaintained and superseded.** Veil is no longer developed and was never independently
+> audited, so don't rely on it to hide your traffic or identity.
 
 Veil routes an application through a tunnel chain (WireGuard, OpenVPN, SOCKS5, HTTP proxy, Tor)
 inside its own network namespace, one namespace per profile, with an iptables kill switch that is
